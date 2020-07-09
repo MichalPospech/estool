@@ -1,1 +1,3 @@
 estool.egg-info/*
+log/*
+__pycache__/*
