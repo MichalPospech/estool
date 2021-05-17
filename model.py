@@ -211,7 +211,7 @@ def simulate(model, train_mode=False, render_mode=True, num_episode=5, seed=-1, 
     np.random.seed(seed)
     model.env.seed(seed)
 
-  for episode in range(num_episode):
+  for _ in range(num_episode):
 
     if model.rnn_mode:
       model.reset()
@@ -271,7 +271,7 @@ def simulate(model, train_mode=False, render_mode=True, num_episode=5, seed=-1, 
     reward_list.append(total_reward)
     t_list.append(t)
 
-  return reward_list, t_list
+  return reward_list, t_list, obs
 
 def main():
 
