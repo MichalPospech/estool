@@ -334,7 +334,7 @@ class OpenES:
 
         return self.solutions
 
-    def tell(self, reward_table_result, characteristics):
+    def tell(self, reward_table_result, characteristics, evaluator):
         # input must be a numpy float array
         assert (
             len(reward_table_result) == self.popsize
@@ -646,8 +646,9 @@ class NES:
             self.epsilon = np.random.normal(
                 scale=self.sigma, size=(self.popsize, self.num_params)
             )
-
-        self.current_solution = None
+        probs = None
+        self.current_index = np.random.choice([*range(self.popsize)], p=probs)
+        self.current_solution = self.population[self.current_index]
         self.current_solutions = (
             self.current_solution.reshape(1, self.num_params) + self.epsilon
         )
@@ -666,10 +667,16 @@ class NES:
         new_sol = self.current_solution + self.learning_rate * 1 / (
             self.sigma * self.popsize
         ) * np.sum(novelties * self.epsilon, axis=0)
-        _, characteristic = evaluator(new_sol)
+        fitness, characteristic = evaluator(new_sol)
         self.characteristics = np.append(
             self.characteristics, characteristics.reshape(1, characteristic.size)
         )
+        if fitness > self.best_reward:
+            self.best_reward = fitness
+            self.best = new_sol
+        new_sol_index = self.characteristics.shape[1] - 1
+        self.population[self.current_index] = new_sol
+        self.characteristics_indices[self.current_index] = new_sol_index
 
     def current_param(self):
         return self.curr_best_mu
@@ -687,5 +694,10 @@ class NES:
 
     def init(self, evaluator):
         pop = np.random.randn(self.popsize, self.num_params)
-        _, characteristics = evaluator(pop)
+        fitness, characteristics = evaluator(pop)
         self.characteristics = np.array(characteristics)
+        self.population = pop
+        best_fitness_index = np.argmax(fitness)
+        self.best_reward = fitness[best_fitness_index]
+        self.best = pop[best_fitness_index]
+        self.characteristics_indices = [*range(self.popsize)]
