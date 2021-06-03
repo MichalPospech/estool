@@ -646,7 +646,13 @@ class NES:
             self.epsilon = np.random.normal(
                 scale=self.sigma, size=(self.popsize, self.num_params)
             )
-        probs = None
+        def calculate_novelty(characteristic):
+            distances = scp.spatial.distance.cdist(self.characteristics, characteristic)
+            nearest = np.partition(distances, self.k)[:, : self.k]
+            mean = np.mean(nearest)
+            return mean
+        novelties = np.array([ calculate_novelty(self.characteristics[i])for i in self.characteristics_indices])
+        probs = novelties/np.sum(novelties)
         self.current_index = np.random.choice([*range(self.popsize)], p=probs)
         self.current_solution = self.population[self.current_index]
         self.current_solutions = (
