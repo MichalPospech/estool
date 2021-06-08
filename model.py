@@ -190,6 +190,7 @@ def compress_input_dct(obs):
 def simulate(model, train_mode=False, render_mode=True, num_episode=5, seed=-1, max_len=-1):
 
   reward_list = []
+  final_states = []
   t_list = []
 
   is_biped = (model.env_name.find("BipedalWalker") >= 0)
@@ -270,8 +271,9 @@ def simulate(model, train_mode=False, render_mode=True, num_episode=5, seed=-1, 
       print("reward", total_reward, "timesteps", t)
     reward_list.append(total_reward)
     t_list.append(t)
+    final_states.append(obs)
 
-  return reward_list, t_list, obs
+  return reward_list, t_list, final_states
 
 def main():
 
