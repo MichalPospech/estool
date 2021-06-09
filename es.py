@@ -634,10 +634,7 @@ class NSAbstract:
     def get_gradient(self, novelties, normalized_reward):
         weights = novelties * self.weight + normalized_reward
         scale = self.sigma * self.popsize
-        unscaled_update = np.sum(
-            weights * self.epsilon,
-            axis=0,
-        )
+        unscaled_update = np.dot(self.epsilon.T, weights)
         return unscaled_update / scale
 
 
