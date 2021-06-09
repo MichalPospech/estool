@@ -603,6 +603,7 @@ class NSAbstract:
     def __init__(
         self,
         num_params,  # number of model parameters
+        weight,
         sigma_init=0.1,  # initial standard deviation
         learning_rate=0.01,  # learning rate for standard deviation
         popsize=256,  # population size
@@ -623,6 +624,7 @@ class NSAbstract:
             self.half_popsize = int(self.popsize / 2)
 
         self.best_reward = 0
+        self.best = None
         self.weight = None
 
     def rms_stdev(self):
@@ -722,7 +724,7 @@ class NSAbstract:
         self.characteristics_indices = [*range(self.popsize)]
 
 
-class NSES:
+class NSES(NSAbstract):
     """ NoveltySearch ES"""
 
     def __init__(
@@ -736,238 +738,28 @@ class NSES:
         antithetic=False,  # whether to use antithetic sampling
     ):
 
-        self.num_params = num_params
-        self.sigma = sigma_init
-        self.learning_rate = learning_rate
-        self.k = k
-        self.popsize = popsize
-        self.metapopulation_size =metapopulation_size
-        self.antithetic = antithetic
-        if self.antithetic:
-            assert self.popsize % 2 == 0, "Population size must be even"
-            self.half_popsize = int(self.popsize / 2)
-
-        self.reward = np.zeros(self.popsize)
-        self.mu = np.zeros(self.num_params)
-        self.best_mu = np.zeros(self.num_params)
-        self.curr_best_mu = np.zeros(self.num_params)
-        self.best_reward = 0
-        self.curr_best_reward = 0
-
-    def rms_stdev(self):
-        sigma = self.sigma
-        return np.mean(np.sqrt(sigma * sigma))
-
-    def ask(self):
-        """returns a list of parameters"""
-        # antithetic sampling
-        if self.antithetic:
-            self.epsilon_half = np.random.normal(
-                scale=self.sigma, size=(self.half_popsize, self.num_params)
-            )
-            self.epsilon = np.concatenate([self.epsilon_half, -self.epsilon_half])
-        else:
-            self.epsilon = np.random.normal(
-                scale=self.sigma, size=(self.popsize, self.num_params)
-            )
-
-        def calculate_novelty(characteristic):
-            distances = scp.spatial.distance.cdist(self.characteristics, characteristic)
-            nearest = np.partition(distances, self.k)[:, : self.k]
-            mean = np.mean(nearest)
-            return mean
-
-        novelties = np.array(
-            [
-                calculate_novelty(self.characteristics[i])
-                for i in self.characteristics_indices
-            ]
-        )
-        probs = novelties / np.sum(novelties)
-        self.current_index = np.random.choice([*range(self.popsize)], p=probs)
-        self.current_solution = self.population[self.current_index]
-        self.current_solutions = (
-            self.current_solution.reshape(1, self.num_params) + self.epsilon
-        )
-
-        return self.current_solutions
-
-    def tell(self, reward_table_result, characteristics, evaluator):
-        # input must be a numpy float array
-        assert (
-            len(reward_table_result) == self.popsize
-        ), "Inconsistent reward_table size reported."
-
-        distances = scp.spatial.distance.cdist(self.characteristics, characteristics)
-        lowest_dist = np.partition(distances, self.k)[:, : self.k]
-        novelties = np.mean(lowest_dist, axis=-1).reshape(self.popsize, 1)
-        new_sol = self.current_solution + self.learning_rate * 1 / (
-            self.sigma * self.popsize
-        ) * np.sum(novelties * self.epsilon, axis=0)
-        fitness, characteristic = evaluator(new_sol)
-        self.characteristics = np.append(
-            self.characteristics, characteristics.reshape(1, characteristic.size)
-        )
-        if fitness > self.best_reward:
-            self.best_reward = fitness
-            self.best = new_sol
-        new_sol_index = self.characteristics.shape[1] - 1
-        self.population[self.current_index] = new_sol
-        self.characteristics_indices[self.current_index] = new_sol_index
-
-    def current_param(self):
-        return self.curr_best_mu
-
-    def set_mu(self, mu):
-        self.mu = np.array(mu)
-
-    def best_param(self):
-        return self.best_mu
-
-    def result(
-        self,
-    ):  # return best params so far, along with historically best reward, curr reward, sigma
-        return (self.best_mu, self.best_reward, self.curr_best_reward, self.sigma)
-
-    def init(self, evaluator):
-        pop = np.random.randn(self.popsize, self.num_params)
-        fitness, characteristics = evaluator(pop)
-        self.characteristics = np.array(characteristics)
-        self.population = pop
-        best_fitness_index = np.argmax(fitness)
-        self.best_reward = fitness[best_fitness_index]
-        self.best = pop[best_fitness_index]
-        self.characteristics_indices = [*range(self.popsize)]
+        super().__init__(num_params, 0, sigma_init, learning_rate, popsize, metapopulation_size, k, antithetic)
 
 
-class NSRES:
+class NSRES(NSAbstract):
     """ NoveltySearch ES"""
 
     def __init__(
         self,
         num_params,  # number of model parameters
+        weight = 0.5,
         sigma_init=0.1,  # initial standard deviation
         learning_rate=0.01,  # learning rate for standard deviation
+        metapopulation_size =10,
         popsize=256,  # population size
-        k=5,
+        k=10,
         antithetic=False,
     ):  # whether to use antithetic sampling
 
-        self.num_params = num_params
-        self.sigma = sigma_init
-        self.learning_rate = learning_rate
-        self.k = k
-        self.popsize = popsize
-        self.antithetic = antithetic
-        if self.antithetic:
-            assert self.popsize % 2 == 0, "Population size must be even"
-            self.half_popsize = int(self.popsize / 2)
-
-        self.reward = np.zeros(self.popsize)
-        self.mu = np.zeros(self.num_params)
-        self.best_mu = np.zeros(self.num_params)
-        self.curr_best_mu = np.zeros(self.num_params)
-        self.best_reward = 0
-        self.curr_best_reward = 0
-        self.weight = 0.5
-
-    def rms_stdev(self):
-        sigma = self.sigma
-        return np.mean(np.sqrt(sigma * sigma))
-
-    def ask(self):
-        """returns a list of parameters"""
-        # antithetic sampling
-        if self.antithetic:
-            self.epsilon_half = np.random.normal(
-                scale=self.sigma, size=(self.half_popsize, self.num_params)
-            )
-            self.epsilon = np.concatenate([self.epsilon_half, -self.epsilon_half])
-        else:
-            self.epsilon = np.random.normal(
-                scale=self.sigma, size=(self.popsize, self.num_params)
-            )
-
-        def calculate_novelty(characteristic):
-            distances = scp.spatial.distance.cdist(self.characteristics, characteristic)
-            nearest = np.partition(distances, self.k)[:, : self.k]
-            mean = np.mean(nearest)
-            return mean
-
-        novelties = np.array(
-            [
-                calculate_novelty(self.characteristics[i])
-                for i in self.characteristics_indices
-            ]
-        )
-        probs = novelties / np.sum(novelties)
-        self.current_index = np.random.choice([*range(self.popsize)], p=probs)
-        self.current_solution = self.population[self.current_index]
-        self.current_solutions = (
-            self.current_solution.reshape(1, self.num_params) + self.epsilon
-        )
-
-        return self.current_solutions
-
-    def tell(self, reward_table_result, characteristics, evaluator):
-        # input must be a numpy float array
-        assert (
-            len(reward_table_result) == self.popsize
-        ), "Inconsistent reward_table size reported."
-
-        distances = scp.spatial.distance.cdist(self.characteristics, characteristics)
-        lowest_dist = np.partition(distances, self.k)[:, : self.k]
-        novelties = np.mean(lowest_dist, axis=-1).reshape(self.popsize, 1)
-        new_sol = self.get_new_solution(
-            novelties, compute_centered_ranks(reward_table_result)
-        )
-        fitness, characteristic = evaluator(new_sol)
-        self.characteristics = np.append(
-            self.characteristics, characteristics.reshape(1, characteristic.size)
-        )
-        if fitness > self.best_reward:
-            self.best_reward = fitness
-            self.best = new_sol
-        new_sol_index = self.characteristics.shape[1] - 1
-        self.population[self.current_index] = new_sol
-        self.characteristics_indices[self.current_index] = new_sol_index
-
-    def get_new_solution(self, novelties, normalized_reward):
-        weights = (novelties + normalized_reward) / 2
-        scale = self.sigma * self.popsize
-        unscaled_update = np.sum(
-            weights * self.epsilon,
-            axis=0,
-        )
-        update = self.learning_rate * unscaled_update / scale
-        return self.current_solution + update
-
-    def current_param(self):
-        return self.curr_best_mu
-
-    def set_mu(self, mu):
-        self.mu = np.array(mu)
-
-    def best_param(self):
-        return self.best_mu
-
-    def result(
-        self,
-    ):  # return best params so far, along with historically best reward, curr reward, sigma
-        return (self.best_mu, self.best_reward, self.curr_best_reward, self.sigma)
-
-    def init(self, evaluator):
-        pop = np.random.randn(self.popsize, self.num_params)
-        fitness, characteristics = evaluator(pop)
-        self.characteristics = np.array(characteristics)
-        self.population = pop
-        best_fitness_index = np.argmax(fitness)
-        self.best_reward = fitness[best_fitness_index]
-        self.best = pop[best_fitness_index]
-        self.characteristics_indices = [*range(self.popsize)]
+        super().__init__(num_params, weight, sigma_init, learning_rate, popsize, metapopulation_size, k, antithetic)
 
 
-class NSRAES:
+class NSRAES(NSAbstract):
     """ NoveltySearch ES"""
 
     def __init__(
@@ -976,88 +768,19 @@ class NSRAES:
         sigma_init=0.1,  # initial standard deviation
         learning_rate=0.01,  # learning rate for standard deviation
         popsize=256,  # population size
+        metapopulation_size =10,
         k=5,
         init_weight=1,
         weight_change=0.05,
         weight_change_threshold=50,
         antithetic=False,
     ):  # whether to use antithetic sampling
-
-        self.weight = init_weight
+        super().__init__(num_params, init_weight, sigma_init, learning_rate, popsize, metapopulation_size, k,antithetic)
         self.weight_change = weight_change
-        self.num_params = num_params
-        self.sigma = sigma_init
-        self.learning_rate = learning_rate
-        self.k = k
-        self.popsize = popsize
-        self.antithetic = antithetic
-        if self.antithetic:
-            assert self.popsize % 2 == 0, "Population size must be even"
-            self.half_popsize = int(self.popsize / 2)
-
-        self.reward = np.zeros(self.popsize)
-        self.mu = np.zeros(self.num_params)
-        self.best_mu = np.zeros(self.num_params)
-        self.curr_best_mu = np.zeros(self.num_params)
-        self.best_reward = 0
-        self.curr_best_reward = 0
         self.best_time = 0
         self.weight_change_threshold = weight_change_threshold
 
-    def rms_stdev(self):
-        sigma = self.sigma
-        return np.mean(np.sqrt(sigma * sigma))
-
-    def ask(self):
-        """returns a list of parameters"""
-        # antithetic sampling
-        if self.antithetic:
-            self.epsilon_half = np.random.normal(
-                scale=self.sigma, size=(self.half_popsize, self.num_params)
-            )
-            self.epsilon = np.concatenate([self.epsilon_half, -self.epsilon_half])
-        else:
-            self.epsilon = np.random.normal(
-                scale=self.sigma, size=(self.popsize, self.num_params)
-            )
-
-        def calculate_novelty(characteristic):
-            distances = scp.spatial.distance.cdist(self.characteristics, characteristic)
-            nearest = np.partition(distances, self.k)[:, : self.k]
-            mean = np.mean(nearest)
-            return mean
-
-        novelties = np.array(
-            [
-                calculate_novelty(self.characteristics[i])
-                for i in self.characteristics_indices
-            ]
-        )
-        probs = novelties / np.sum(novelties)
-        self.current_index = np.random.choice([*range(self.popsize)], p=probs)
-        self.current_solution = self.population[self.current_index]
-        self.current_solutions = (
-            self.current_solution.reshape(1, self.num_params) + self.epsilon
-        )
-
-        return self.current_solutions
-
-    def tell(self, reward_table_result, characteristics, evaluator):
-        # input must be a numpy float array
-        assert (
-            len(reward_table_result) == self.popsize
-        ), "Inconsistent reward_table size reported."
-
-        distances = scp.spatial.distance.cdist(self.characteristics, characteristics)
-        lowest_dist = np.partition(distances, self.k)[:, : self.k]
-        novelties = np.mean(lowest_dist, axis=-1).reshape(self.popsize, 1)
-        new_sol = self.get_new_solution(
-            novelties, compute_centered_ranks(reward_table_result)
-        )
-        fitness, characteristic = evaluator(new_sol)
-        self.characteristics = np.append(
-            self.characteristics, characteristics.reshape(1, characteristic.size)
-        )
+    def update_bests(self, fitness, new_sol):
         if fitness > self.best_reward:
             self.best_reward = fitness
             self.best = new_sol
@@ -1068,43 +791,3 @@ class NSRAES:
         if self.best_time >= self.weight_change_threshold:
             self.weight = min(0, self.weight - self.weight_change)
             self.best_time = 0
-        new_sol_index = self.characteristics.shape[1] - 1
-        self.population[self.current_index] = new_sol
-        self.characteristics_indices[self.current_index] = new_sol_index
-
-    def get_new_solution(self, novelties, normalized_reward):
-        gradient = self.get_gradient(novelties, normalized_reward)
-        return self.current_solution + self.learning_rate * gradient
-
-    def get_gradient(self, novelties, normalized_reward):
-        weights = novelties * self.weight + normalized_reward
-        scale = self.sigma * self.popsize
-        unscaled_update = np.sum(
-            weights * self.epsilon,
-            axis=0,
-        )
-        return unscaled_update / scale
-
-    def current_param(self):
-        return self.curr_best_mu
-
-    def set_mu(self, mu):
-        self.mu = np.array(mu)
-
-    def best_param(self):
-        return self.best_mu
-
-    def result(
-        self,
-    ):  # return best params so far, along with historically best reward, curr reward, sigma
-        return (self.best_mu, self.best_reward, self.curr_best_reward, self.sigma)
-
-    def init(self, evaluator):
-        pop = np.random.randn(self.popsize, self.num_params)
-        fitness, characteristics = evaluator(pop)
-        self.characteristics = np.array(characteristics)
-        self.population = pop
-        best_fitness_index = np.argmax(fitness)
-        self.best_reward = fitness[best_fitness_index]
-        self.best = pop[best_fitness_index]
-        self.characteristics_indices = [*range(self.popsize)]
