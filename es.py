@@ -96,6 +96,64 @@ class Adam(Optimizer):
         return step
 
 
+class SimpleAdam:
+    def __init__(self, stepsize, num_params, beta1=0.99, beta2=0.999):
+        self.stepsize = stepsize
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.m = np.zeros(num_params, dtype=np.float32)
+        self.v = np.zeros(num_params, dtype=np.float32)
+        self.t = 0
+        self.epsilon = 1e-08
+
+    def compute_step(self, gradient):
+        self.t += 1
+        a = (
+            self.stepsize
+            * np.sqrt(1 - self.beta2 ** self.t)
+            / (1 - self.beta1 ** self.t)
+        )
+        self.m = self.beta1 * self.m + (1 - self.beta1) * gradient
+        self.v = self.beta2 * self.v + (1 - self.beta2) * (gradient * gradient)
+        step = -a * self.m / (np.sqrt(self.v) + self.epsilon)
+        return step
+
+
+class SimpleSGD:
+    def __init__(self, stepsize):
+        self.stepsize = stepsize
+
+    def compute_step(self, gradient):
+        step = -self.stepsize * gradient
+        return step
+
+
+class SimpleSGDMomentum:
+    def __init__(self, stepsize, num_params, momentum=0.9):
+        self.v = np.zeros(num_params, dtype=np.float32)
+        self.stepsize, self.momentum = stepsize, momentum
+
+    def compute_step(self, gradient):
+        self.v = self.momentum * self.v + (1.0 - self.momentum) * gradient
+        step = -self.stepsize * self.v
+        return step
+
+
+def create_optimizer(parameter_dict, num_params):
+    name = parameter_dict["name"]
+    parameter_dict.pop("name")
+    opt = None
+    if name == "sgd":
+        opt = SimpleSGD(**parameter_dict)
+    elif name == "adam":
+        opt = SimpleAdam(num_params=num_params, **parameter_dict)
+    elif name == "sgdm":
+        opt = SimpleSGDMomentum(num_params=num_params, **parameter_dict)
+    else:
+        raise ValueError(f"Unsupported optimizer {name}")
+    return opt
+
+
 class CMAES:
     """CMA-ES wrapper."""
 
@@ -277,6 +335,7 @@ class OpenES:
     def __init__(
         self,
         num_params,  # number of model parameters
+        optimizer_params,
         sigma_init=0.1,  # initial standard deviation
         sigma_decay=0.999,  # anneal standard deviation
         sigma_limit=0.01,  # stop annealing if less than this
@@ -315,7 +374,7 @@ class OpenES:
         if self.rank_fitness:
             self.forget_best = True  # always forget the best one if we rank
         # choose optimizer
-        self.optimizer = None
+        self.optimizer = create_optimizer(optimizer_params, num_params)
 
     def rms_stdev(self):
         sigma = self.sigma
@@ -368,14 +427,14 @@ class OpenES:
 
         # main bit:
         # standardize the rewards to have a gaussian distribution
-        normalized_reward = (reward - np.mean(reward)) / np.std(reward)
-        change_mu = (
+        normalized_reward = compute_centered_ranks(reward)
+        gradient = (
             1.0
             / (self.popsize * self.sigma)
             * np.dot(self.epsilon.T, normalized_reward)
         )
 
-        self.mu += self.learning_rate * change_mu
+        self.mu -= self.optimizer.compute_step(gradient)
 
         # adjust sigma according to the adaptive sigma calculation
         if self.sigma > self.sigma_limit:
@@ -599,10 +658,12 @@ class PEPG:
     def init(self, evaluator=None):
         pass
 
+
 class NSAbstract:
     def __init__(
         self,
         num_params,  # number of model parameters
+        optimizer_params,
         weight,
         sigma_init=0.1,  # initial standard deviation
         learning_rate=0.01,  # learning rate for standard deviation
@@ -611,7 +672,10 @@ class NSAbstract:
         k=10,
         antithetic=False,  # whether to use antithetic sampling
     ):
-
+        self.optimizers = [
+            create_optimizer(optimizer_params, num_params)
+            for _ in range(metapopulation_size)
+        ]
         self.num_params = num_params
         self.sigma = sigma_init
         self.learning_rate = learning_rate
@@ -637,13 +701,11 @@ class NSAbstract:
         unscaled_update = np.dot(self.epsilon.T, weights)
         return unscaled_update / scale
 
-
-    def calculate_novelty(self,characteristic):
+    def calculate_novelty(self, characteristic):
         distances = scp.spatial.distance.cdist(self.characteristics, characteristic)
         nearest = np.partition(distances, self.k)[:, : self.k]
         mean = np.mean(nearest)
         return mean
-
 
     def ask(self):
         """returns a list of parameters"""
@@ -680,8 +742,13 @@ class NSAbstract:
         ), "Inconsistent reward_table size reported."
 
         novelties = self.calculate_novelty(characteristics).reshape(self.popsize, 1)
-        gradient = self.get_gradient(novelties, compute_centered_ranks(reward_table_result))
-        new_sol = self.current_solution + self.learning_rate * gradient
+        gradient = self.get_gradient(
+            compute_centered_ranks(novelties), compute_centered_ranks(reward_table_result)
+        )
+        new_sol = self.current_solution + self.optimizers[
+            self.current_index
+        ].compute_step(-gradient)
+
         fitness, characteristic = evaluator(new_sol)
         self.characteristics = np.append(
             self.characteristics, characteristics.reshape(1, characteristic.size)
@@ -705,9 +772,8 @@ class NSAbstract:
     def best_param(self):
         return self.best
 
-    def result(
-        self,
-    ):  # return best params so far, along with historically best reward, curr reward, sigma
+    # return best params so far, along with historically best reward, curr reward, sigma
+    def result(self):
         return (self.best, self.best_reward, self.best_reward, self.sigma)
 
     def init(self, evaluator):
@@ -734,8 +800,16 @@ class NSES(NSAbstract):
         k=10,
         antithetic=False,  # whether to use antithetic sampling
     ):
-
-        super().__init__(num_params, 0, sigma_init, learning_rate, popsize, metapopulation_size, k, antithetic)
+        super().__init__(
+            num_params,
+            0,
+            sigma_init,
+            learning_rate,
+            popsize,
+            metapopulation_size,
+            k,
+            antithetic,
+        )
 
 
 class NSRES(NSAbstract):
@@ -744,16 +818,24 @@ class NSRES(NSAbstract):
     def __init__(
         self,
         num_params,  # number of model parameters
-        weight = 0.5,
+        weight=0.5,
         sigma_init=0.1,  # initial standard deviation
         learning_rate=0.01,  # learning rate for standard deviation
-        metapopulation_size =10,
+        metapopulation_size=10,
         popsize=256,  # population size
         k=10,
         antithetic=False,
-    ):  # whether to use antithetic sampling
-
-        super().__init__(num_params, weight, sigma_init, learning_rate, popsize, metapopulation_size, k, antithetic)
+    ):
+        super().__init__(
+            num_params,
+            weight,
+            sigma_init,
+            learning_rate,
+            popsize,
+            metapopulation_size,
+            k,
+            antithetic,
+        )
 
 
 class NSRAES(NSAbstract):
@@ -765,14 +847,23 @@ class NSRAES(NSAbstract):
         sigma_init=0.1,  # initial standard deviation
         learning_rate=0.01,  # learning rate for standard deviation
         popsize=256,  # population size
-        metapopulation_size =10,
+        metapopulation_size=10,
         k=5,
         init_weight=1,
         weight_change=0.05,
         weight_change_threshold=50,
         antithetic=False,
-    ):  # whether to use antithetic sampling
-        super().__init__(num_params, init_weight, sigma_init, learning_rate, popsize, metapopulation_size, k,antithetic)
+    ):
+        super().__init__(
+            num_params,
+            init_weight,
+            sigma_init,
+            learning_rate,
+            popsize,
+            metapopulation_size,
+            k,
+            antithetic,
+        )
         self.weight_change = weight_change
         self.best_time = 0
         self.weight_change_threshold = weight_change_threshold
