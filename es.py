@@ -140,15 +140,16 @@ class SimpleSGDMomentum:
 
 
 def create_optimizer(parameter_dict, num_params):
-    name = parameter_dict["name"]
+    params = parameter_dict.copy()
+    name = params["name"]
     parameter_dict.pop("name")
     opt = None
     if name == "sgd":
-        opt = SimpleSGD(**parameter_dict)
+        opt = SimpleSGD(**params)
     elif name == "adam":
-        opt = SimpleAdam(num_params=num_params, **parameter_dict)
+        opt = SimpleAdam(num_params=num_params, **params)
     elif name == "sgdm":
-        opt = SimpleSGDMomentum(num_params=num_params, **parameter_dict)
+        opt = SimpleSGDMomentum(num_params=num_params, **params)
     else:
         raise ValueError(f"Unsupported optimizer {name}")
     return opt
@@ -335,7 +336,7 @@ class OpenES:
     def __init__(
         self,
         num_params,  # number of model parameters
-        optimizer_params,
+        optimizer,
         sigma_init=0.1,  # initial standard deviation
         sigma_decay=0.999,  # anneal standard deviation
         sigma_limit=0.01,  # stop annealing if less than this
@@ -374,7 +375,7 @@ class OpenES:
         if self.rank_fitness:
             self.forget_best = True  # always forget the best one if we rank
         # choose optimizer
-        self.optimizer = create_optimizer(optimizer_params, num_params)
+        self.optimizer = create_optimizer(optimizer, num_params)
 
     def rms_stdev(self):
         sigma = self.sigma
@@ -666,7 +667,6 @@ class NSAbstract:
         optimizer_params,
         weight,
         sigma_init=0.1,  # initial standard deviation
-        learning_rate=0.01,  # learning rate for standard deviation
         popsize=256,  # population size
         metapopulation_size=10,
         k=10,
@@ -678,7 +678,6 @@ class NSAbstract:
         ]
         self.num_params = num_params
         self.sigma = sigma_init
-        self.learning_rate = learning_rate
         self.k = k
         self.popsize = popsize
         self.metapopulation_size = metapopulation_size
@@ -743,7 +742,8 @@ class NSAbstract:
 
         novelties = self.calculate_novelty(characteristics).reshape(self.popsize, 1)
         gradient = self.get_gradient(
-            compute_centered_ranks(novelties), compute_centered_ranks(reward_table_result)
+            compute_centered_ranks(novelties),
+            compute_centered_ranks(reward_table_result),
         )
         new_sol = self.current_solution + self.optimizers[
             self.current_index
@@ -793,8 +793,8 @@ class NSES(NSAbstract):
     def __init__(
         self,
         num_params,  # number of model parameters
-        sigma_init=0.1,  # initial standard deviation
-        learning_rate=0.01,  # learning rate for standard deviation
+        optimizer,
+        sigma=0.1,  # initial standard deviation
         popsize=256,  # population size
         metapopulation_size=10,
         k=10,
@@ -802,9 +802,9 @@ class NSES(NSAbstract):
     ):
         super().__init__(
             num_params,
+            optimizer,
             0,
-            sigma_init,
-            learning_rate,
+            sigma,
             popsize,
             metapopulation_size,
             k,
@@ -818,9 +818,9 @@ class NSRES(NSAbstract):
     def __init__(
         self,
         num_params,  # number of model parameters
+        optimizer,
         weight=0.5,
-        sigma_init=0.1,  # initial standard deviation
-        learning_rate=0.01,  # learning rate for standard deviation
+        sigma=0.1,  # initial standard deviation
         metapopulation_size=10,
         popsize=256,  # population size
         k=10,
@@ -828,9 +828,9 @@ class NSRES(NSAbstract):
     ):
         super().__init__(
             num_params,
+            optimizer,
             weight,
-            sigma_init,
-            learning_rate,
+            sigma,
             popsize,
             metapopulation_size,
             k,
@@ -844,8 +844,8 @@ class NSRAES(NSAbstract):
     def __init__(
         self,
         num_params,  # number of model parameters
-        sigma_init=0.1,  # initial standard deviation
-        learning_rate=0.01,  # learning rate for standard deviation
+        optimizer,
+        sigma=0.1,  # initial standard deviation
         popsize=256,  # population size
         metapopulation_size=10,
         k=5,
@@ -856,9 +856,9 @@ class NSRAES(NSAbstract):
     ):
         super().__init__(
             num_params,
+            optimizer,
             init_weight,
-            sigma_init,
-            learning_rate,
+            sigma,
             popsize,
             metapopulation_size,
             k,
