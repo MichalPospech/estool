@@ -1,4 +1,3 @@
-from model import evaluate
 import numpy as np
 import scipy as scp
 
@@ -145,11 +144,11 @@ def create_optimizer(parameter_dict, num_params):
     parameter_dict.pop("name")
     opt = None
     if name == "sgd":
-        opt = SimpleSGD(**params)
+        opt = SimpleSGD(**parameter_dict)
     elif name == "adam":
-        opt = SimpleAdam(num_params=num_params, **params)
+        opt = SimpleAdam(num_params=num_params, **parameter_dict)
     elif name == "sgdm":
-        opt = SimpleSGDMomentum(num_params=num_params, **params)
+        opt = SimpleSGDMomentum(num_params=num_params, **parameter_dict)
     else:
         raise ValueError(f"Unsupported optimizer {name}")
     return opt
@@ -191,7 +190,7 @@ class CMAES:
         self.solutions = np.array(self.es.ask())
         return self.solutions
 
-    def tell(self, reward_table_result, characteristics):
+    def tell(self, reward_table_result, characteristics, evaluator):
         reward_table = -np.array(reward_table_result)
         if self.weight_decay > 0:
             l2_decay = compute_weight_decay(self.weight_decay, self.solutions)
@@ -278,7 +277,7 @@ class SimpleGA:
 
         return solutions
 
-    def tell(self, reward_table_result, characteristics):
+    def tell(self, reward_table_result, characteristics, evaluator):
         # input must be a numpy float array
         assert (
             len(reward_table_result) == self.popsize

@@ -273,7 +273,7 @@ def simulate(model, train_mode=False, render_mode=True, num_episode=5, seed=-1, 
     t_list.append(t)
     final_states.append(obs)
 
-  return reward_list, t_list, final_states
+  return reward_list, t_list, np.array(final_states).flatten()
 
 def main():
 
