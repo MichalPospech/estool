@@ -545,7 +545,7 @@ class PEPG:
         self.solutions = solutions
         return solutions
 
-    def tell(self, reward_table_result, characteristics):
+    def tell(self, reward_table_result, characteristics, evaluator):
         # input must be a numpy float array
         assert (
             len(reward_table_result) == self.popsize
