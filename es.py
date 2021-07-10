@@ -190,7 +190,7 @@ class CMAES:
         self.solutions = np.array(self.es.ask())
         return self.solutions
 
-    def tell(self, reward_table_result, characteristics, evaluator):
+    def tell(self, reward_table_result, *_):
         reward_table = -np.array(reward_table_result)
         if self.weight_decay > 0:
             l2_decay = compute_weight_decay(self.weight_decay, self.solutions)
@@ -277,7 +277,7 @@ class SimpleGA:
 
         return solutions
 
-    def tell(self, reward_table_result, characteristics, evaluator):
+    def tell(self, reward_table_result, *_):
         # input must be a numpy float array
         assert (
             len(reward_table_result) == self.popsize
@@ -393,7 +393,7 @@ class OpenES:
 
         return self.solutions
 
-    def tell(self, reward_table_result, characteristics, evaluator):
+    def tell(self, reward_table_result, *_):
         # input must be a numpy float array
         assert (
             len(reward_table_result) == self.popsize
@@ -545,7 +545,7 @@ class PEPG:
         self.solutions = solutions
         return solutions
 
-    def tell(self, reward_table_result, characteristics, evaluator):
+    def tell(self, reward_table_result, *_):
         # input must be a numpy float array
         assert (
             len(reward_table_result) == self.popsize
@@ -733,13 +733,12 @@ class NSAbstract:
 
         return self.current_solutions
 
-    def tell(self, reward_table_result, characteristics, evaluator):
+    def tell(self, reward_table_result, novelties, evaluator):
         # input must be a numpy float array
         assert (
             len(reward_table_result) == self.popsize
         ), "Inconsistent reward_table size reported."
 
-        novelties = self.calculate_novelty(characteristics).reshape(self.popsize, 1)
         gradient = self.get_gradient(
             compute_centered_ranks(novelties),
             compute_centered_ranks(reward_table_result),
@@ -750,7 +749,7 @@ class NSAbstract:
 
         fitness, characteristic = evaluator(new_sol)
         self.characteristics = np.append(
-            self.characteristics, characteristics.reshape(1, characteristic.size)
+            self.characteristics, characteristic.reshape(1, characteristic.size)
         )
         new_sol_index = self.characteristics.shape[1] - 1
         self.population[self.current_index] = new_sol
