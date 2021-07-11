@@ -141,14 +141,14 @@ class SimpleSGDMomentum:
 def create_optimizer(parameter_dict, num_params):
     params = parameter_dict.copy()
     name = params["name"]
-    parameter_dict.pop("name")
+    params.pop("name")
     opt = None
     if name == "sgd":
-        opt = SimpleSGD(**parameter_dict)
+        opt = SimpleSGD(**params)
     elif name == "adam":
-        opt = SimpleAdam(num_params=num_params, **parameter_dict)
+        opt = SimpleAdam(num_params=num_params, **params)
     elif name == "sgdm":
-        opt = SimpleSGDMomentum(num_params=num_params, **parameter_dict)
+        opt = SimpleSGDMomentum(num_params=num_params, **params)
     else:
         raise ValueError(f"Unsupported optimizer {name}")
     return opt
@@ -668,7 +668,7 @@ class NSAbstract:
         sigma_init=0.1,  # initial standard deviation
         popsize=256,  # population size
         metapopulation_size=10,
-        k=10,
+        k=5,
         antithetic=False,  # whether to use antithetic sampling
     ):
         self.optimizers = [
@@ -687,7 +687,7 @@ class NSAbstract:
 
         self.best_reward = 0
         self.best = None
-        self.weight = None
+        self.weight = weight
 
     def rms_stdev(self):
         sigma = self.sigma
@@ -700,8 +700,8 @@ class NSAbstract:
         return unscaled_update / scale
 
     def calculate_novelty(self, characteristic):
-        distances = scp.spatial.distance.cdist(self.characteristics, characteristic)
-        nearest = np.partition(distances, self.k)[:, : self.k]
+        distances = scp.spatial.distance.cdist(self.characteristics, np.expand_dims(characteristic, axis = 0))
+        nearest = np.partition(distances.T, self.k)[:,:self.k]
         mean = np.mean(nearest)
         return mean
 
@@ -720,12 +720,12 @@ class NSAbstract:
 
         novelties = np.array(
             [
-                self.calculate_novelty(self.characteristics[i])
+                self.calculate_novelty(self.characteristics[i,:])
                 for i in self.characteristics_indices
             ]
         )
         probs = novelties / np.sum(novelties)
-        self.current_index = np.random.choice([*range(self.popsize)], p=probs)
+        self.current_index = np.random.choice([*range(self.metapopulation_size)], p=probs)
         self.current_solution = self.population[self.current_index]
         self.current_solutions = (
             self.current_solution.reshape(1, self.num_params) + self.epsilon
@@ -749,9 +749,9 @@ class NSAbstract:
 
         fitness, characteristic = evaluator(new_sol)
         self.characteristics = np.append(
-            self.characteristics, characteristic.reshape(1, characteristic.size)
+            self.characteristics, characteristic.reshape(1, characteristic.size), axis=0
         )
-        new_sol_index = self.characteristics.shape[1] - 1
+        new_sol_index = self.characteristics.shape[0] - 1
         self.population[self.current_index] = new_sol
         self.characteristics_indices[self.current_index] = new_sol_index
         self.update_bests(fitness, new_sol)
@@ -775,14 +775,14 @@ class NSAbstract:
         return (self.best, self.best_reward, self.best_reward, self.sigma)
 
     def init(self, evaluator):
-        pop = np.random.randn(self.popsize, self.num_params)
+        pop = np.random.randn(self.metapopulation_size, self.num_params)
         fitness, characteristics = evaluator(pop)
         self.characteristics = np.array(characteristics)
         self.population = pop
         best_fitness_index = np.argmax(fitness)
         self.best_reward = fitness[best_fitness_index]
         self.best = pop[best_fitness_index]
-        self.characteristics_indices = [*range(self.popsize)]
+        self.characteristics_indices = [*range(self.metapopulation_size)]
 
 
 class NSES(NSAbstract):
