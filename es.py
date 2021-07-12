@@ -605,7 +605,7 @@ class PEPG:
             self.mu += self.epsilon_full[idx].mean(axis=0)
         else:
             rT = reward[: self.batch_size] - reward[self.batch_size :]
-            change_mu = np.dot(rT, epsilon)
+            change_mu = np.dot(rT, epsilon)/2
             self.optimizer.stepsize = self.learning_rate
             update_ratio = self.optimizer.update(
                 -change_mu
@@ -623,7 +623,7 @@ class PEPG:
             ) / sigma.reshape(1, self.num_params)
             reward_avg = (reward[: self.batch_size] + reward[self.batch_size :]) / 2.0
             rS = reward_avg - b
-            delta_sigma = (np.dot(rS, S)) / (2 * self.batch_size * stdev_reward)
+            delta_sigma = np.dot(rS,S) 
 
             # adjust sigma according to the adaptive sigma calculation
             # for stability, don't let sigma move more than 10% of orig value
@@ -700,8 +700,16 @@ class NSAbstract:
         return unscaled_update / scale
 
     def calculate_novelty(self, characteristic):
-        distances = scp.spatial.distance.cdist(self.characteristics, np.expand_dims(characteristic, axis = 0))
-        nearest = np.partition(distances.T, self.k)[:,:self.k]
+        distances = []
+        for solution_characteristics in self.characteristics:
+            if solution_characteristics == characteristic:
+                distances.append(0)
+                continue
+            distances = scp.spatial.distance.cdist(solution_characteristics, characteristic)
+            mean_distance = np.mean(distances)
+            distances.append(mean_distance)
+        distances = np.array(distances)
+        nearest = np.partition(distances, self.k)[:self.k]
         mean = np.mean(nearest)
         return mean
 
